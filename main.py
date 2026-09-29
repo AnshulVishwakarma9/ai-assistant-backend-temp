@@ -89,7 +89,7 @@ async def chat(
             "Content-Type": "application/json",
         },
         json={
-            "model": "inclusionai/ling-3.0-flash-fin:free",
+            "model": "inclusionai/ling-3.0-flash-sante:free",
             "messages": [
                 {
                     "role": "user",
