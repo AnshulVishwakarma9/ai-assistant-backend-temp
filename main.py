@@ -21,7 +21,6 @@ app.add_exception_handler(
     RateLimitExceeded,
     _rate_limit_exceeded_handler
 )
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -29,8 +28,8 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "https://ai-twins.vercel.app",
     ],
-    allow_methods=["POST"],
-    allow_headers=["Content-Type"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
