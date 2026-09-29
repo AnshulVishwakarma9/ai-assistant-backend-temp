@@ -65,7 +65,6 @@ def extract_text(file_name, content):
 
     return ""
 
-
 @app.post("/api/chat")
 @limiter.limit("10/minute")
 async def chat(
@@ -84,34 +83,34 @@ async def chat(
                 Question:{input}"""
 
     response = requests.post(
-    "https://openrouter.ai/api/v1/chat/completions",
-    headers={
-        "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
-        "Content-Type": "application/json",
-    },
-    json={
-        "model": "inclusionai/ling-3.0-flash-fin:free",
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
-    },
-)
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "inclusionai/ling-3.0-flash-fin:free",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+        },
+    )
 
-print("OpenRouter status:", response.status_code)
-print("OpenRouter response:", response.text)
+    print("OpenRouter status:", response.status_code)
+    print("OpenRouter response:", response.text)
 
-if response.status_code != 200:
+    if response.status_code != 200:
+        return {
+            "error": "OpenRouter request failed",
+            "status": response.status_code,
+            "details": response.text
+        }
+
+    result = response.json()
+
     return {
-        "error": "OpenRouter request failed",
-        "status": response.status_code,
-        "details": response.text
+        "response": result["choices"][0]["message"]["content"]
     }
-
-result = response.json()
-
-return {
-    "response": result["choices"][0]["message"]["content"]
-}
