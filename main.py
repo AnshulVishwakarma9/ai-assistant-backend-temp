@@ -84,22 +84,34 @@ async def chat(
                 Question:{input}"""
 
     response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "inclusionai/ling-3.0-flash-fin:free",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-        },
-    )
+    "https://openrouter.ai/api/v1/chat/completions",
+    headers={
+        "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "model": "inclusionai/ling-3.0-flash-fin:free",
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+    },
+)
 
-    result = response.json()
+print("OpenRouter status:", response.status_code)
+print("OpenRouter response:", response.text)
 
-    return {"response": result["choices"][0]["message"]["content"]}
+if response.status_code != 200:
+    return {
+        "error": "OpenRouter request failed",
+        "status": response.status_code,
+        "details": response.text
+    }
+
+result = response.json()
+
+return {
+    "response": result["choices"][0]["message"]["content"]
+}
