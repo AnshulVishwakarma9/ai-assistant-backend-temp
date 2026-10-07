@@ -17,10 +17,7 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI()
 
 app.state.limiter = limiter
-app.add_exception_handler(
-    RateLimitExceeded,
-    _rate_limit_exceeded_handler
-)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -65,22 +62,28 @@ def extract_text(file_name, content):
 
     return ""
 
+
 @app.post("/api/chat")
 @limiter.limit("10/minute")
 async def chat(
     request: Request,
     input: str = Form(...),
-    file: UploadFile = File(None)
+    file: UploadFile = File(None),
+    generateImage: bool = Form(False)
 ):
     document_text = ""
-
+    prompt = f"""Question:{input}"""
+    
     if file:
         content = await file.read()
         document_text = extract_text(file.filename, content)
-
-    prompt = f"""Use the following document to answer the user's question.
+        prompt = f"""Use the following document to answer the user's question.
                 Document:{document_text}
                 Question:{input}"""
+
+    if generateImage:
+        prompt = f"""Give an Svg Code to plot the user description.
+                    Question:{input}"""
 
     response = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -106,11 +109,9 @@ async def chat(
         return {
             "error": "OpenRouter request failed",
             "status": response.status_code,
-            "details": response.text
+            "details": response.text,
         }
 
     result = response.json()
 
-    return {
-        "response": result["choices"][0]["message"]["content"]
-    }
+    return {"response": result["choices"][0]["message"]["content"]}
