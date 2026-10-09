@@ -1,10 +1,11 @@
+import json
 import os
 
 import pymupdf
 import requests
 from docx import Document
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -18,6 +19,7 @@ app = FastAPI()
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -36,29 +38,20 @@ async def root():
 
 
 def extract_text(file_name, content):
+    file_name = file_name.lower()
+
     if file_name.endswith(".txt"):
         return content.decode("utf-8")
 
     if file_name.endswith(".pdf"):
-        pdf = pymupdf.open(stream=content, filetype="pdf")
-        text = ""
-
-        for page in pdf:
-            text += page.get_text()
-
-        return text
+        with pymupdf.open(stream=content, filetype="pdf") as pdf:
+            return "\n".join(page.get_text() for page in pdf)
 
     if file_name.endswith(".docx"):
         from io import BytesIO
 
         document = Document(BytesIO(content))
-
-        text = ""
-
-        for paragraph in document.paragraphs:
-            text += paragraph.text + "\n"
-
-        return text
+        return "\n".join(paragraph.text for paragraph in document.paragraphs)
 
     return ""
 
@@ -69,49 +62,93 @@ async def chat(
     request: Request,
     input: str = Form(...),
     file: UploadFile = File(None),
-    generateImage: bool = Form(False)
+    generateImage: str = Form("false"),
 ):
-    document_text = ""
-    prompt = f"""Question:{input}"""
-    
+    try:
+        payload = json.loads(input)
+    except json.JSONDecodeError:
+        payload = {"currentChatQuestion": input}
+
+    question = payload.get("currentChatQuestion", input)
+    previous_messages = payload.get("previousChatHistory", [])
+    user_info = payload.get("userInfo", {})
+
+    prompt = f"""User information: {json.dumps(user_info)}
+Question: {question}"""
+
     if file:
         content = await file.read()
-        document_text = extract_text(file.filename, content)
+        document_text = extract_text(file.filename or "", content)
+
+        if not document_text:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported file type. Use TXT, PDF, or DOCX.",
+            )
+
         prompt = f"""Use the following document to answer the user's question.
-                Document:{document_text}
-                Question:{input}"""
 
-    if generateImage:
-        prompt = f"""Give an Svg Code to plot the user description.
-                    Question:{input}"""
+Document:
+{document_text}
 
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "inclusionai/ling-3.0-flash-sante:free",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-        },
-    )
+Question: {question}"""
 
-    print("OpenRouter status:", response.status_code)
-    print("OpenRouter response:", response.text)
+    if generateImage.lower() == "true":
+        prompt = f"""Generate valid SVG code for the user's description.
+Return only the SVG code without Markdown fences.
+Description: {question}"""
+
+    messages = [
+        {
+            "role": item["role"],
+            "content": item["content"],
+        }
+        for item in previous_messages[-5:]
+        if item.get("role") in ("user", "assistant")
+        and isinstance(item.get("content"), str)
+    ]
+
+    messages.append({
+        "role": "user",
+        "content": prompt,
+    })
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "openrouter/free",
+                "messages": messages,
+            },
+            timeout=60,
+        )
+    except requests.RequestException:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to connect to OpenRouter.",
+        )
 
     if response.status_code != 200:
-        return {
-            "error": "OpenRouter request failed",
-            "status": response.status_code,
-            "details": response.text,
-        }
+        print("OpenRouter status:", response.status_code)
+        print("OpenRouter response:", response.text)
+
+        raise HTTPException(
+            status_code=502,
+            detail="OpenRouter request failed.",
+        )
 
     result = response.json()
 
-    return {"response": result["choices"][0]["message"]["content"]}
+    try:
+        answer = result["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        raise HTTPException(
+            status_code=502,
+            detail="Invalid response received from OpenRouter.",
+        )
+
+    return {"response": answer}
